@@ -19,6 +19,7 @@ INTERNET_FLAG_KEEP_CONNECTION equ 0x00400000
   extern InternetConnectA
   extern HttpOpenRequestA
   extern HttpSendRequestA
+  extern InternetReadFile
 
   global main
 
@@ -31,6 +32,7 @@ internet_close_status: db "Internet Close Status: %d", 0x0a, 0
 internet_connect_status: db "Internet Connect Status: %d", 0x0a, 0
 http_open_request_status: db "Http Open Request Status: %d", 0x0a, 0
 http_send_request_status: db "Http Send Request Status: %d", 0x0a, 0
+internet_read_file_status: db "InternetReadFile Status: %d", 0x0a, "Content:", 0x0a, "%s", 0x0a, 0
 hostname: db "api.telegram.org", 0
 request_method: db "GET", 0
 http_version: db "HTTP/1.1", 0
@@ -42,10 +44,14 @@ getMe: db "getMe", 0
   section .bss
 
 endpoint_fmt_buffer: resb 1024 ; reserve 1024 bytes
+internet_read_file_buffer: resb 1025 ; reserve 1024 bytes + 1 for null-ending for getting content
+number_of_bytes_read: resq 1 ; reserve 1 dword for actually read bytes
 
   section .text
 
 main:
+  mov qword [REL number_of_bytes_read], 0
+
   ; NOTE: shadow space should be adj to the return address
 
   ; 8 bytes for allignment after func calling
@@ -149,11 +155,39 @@ main:
         call HttpSendRequestA
         ; RAX - true / false
 
+        mov R15, RAX ; save status for future use
+
         ; report status
         lea RCX, [REL http_send_request_status]
         mov RDX, RAX
         call printf
 
+        ; if [status of send request] == false
+        cmp R15, 0
+        je http_send_request_fail
+        ; else:
+          
+          ; read 1024 bytes or less of data
+          mov RCX, R14
+          lea RDX, [REL internet_read_file_buffer]
+          mov R8, 1024
+          lea R9, [REL number_of_bytes_read]
+          call InternetReadFile
+          ; RAX - true / false
+
+          ; add null ending
+          lea R15, [REL internet_read_file_buffer]
+          add R15, [REL number_of_bytes_read]
+          mov byte [R15], 0
+
+          ; print status & content
+          lea RCX, [REL internet_read_file_status]
+          mov RDX, RAX
+          ; mov R8, [REL number_of_bytes_read]
+          lea R8, [REL internet_read_file_buffer]
+          call printf
+
+http_send_request_fail:
         ; close request handler
         mov RCX, R14
         call InternetCloseHandle
